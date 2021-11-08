@@ -5,60 +5,12 @@
 #include <vector>
 #include <string>
 
-#include "WindowsBitmap.h"
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include "TextToPixels.h"
+#include "WritePNG.h"
 
-void WriteBitmap(const char *filename, int width, int height, int bpl, unsigned char *output)
-{
-	BITMAPINFOHEADER bmih;
-	BITMAPFILEHEADER bmfh;
-	FILE *fp = NULL;
-
-	// set up file header values
-	RGBQUAD palette[256];
-	for(int i = 0; i < 256; ++i)
-	{
-		palette[i].rgbBlue = i;
-		palette[i].rgbGreen = i;
-		palette[i].rgbRed = i;
-		palette[i].rgbReserved = 0;
-	}
-
-	bmih.biSize = sizeof(bmih);
-	bmih.biWidth = width;
-	bmih.biHeight = height;
-	bmih.biPlanes = 1;
-	bmih.biBitCount = 8;
-	bmih.biCompression = 0;
-	bmih.biSizeImage = height * bpl;
-	bmih.biXPelsPerMeter = 3937;
-	bmih.biYPelsPerMeter = 3937;
-	bmih.biClrUsed = 256;
-	bmih.biClrImportant = 256;
-
-	bmfh.bfType = 0x4d42; // "BM"
-	bmfh.bfSize = sizeof(bmfh) + sizeof(bmih) + bmih.biSizeImage;
-	bmfh.bfReserved1 = 0;
-	bmfh.bfReserved2 = 0;
-	bmfh.bfOffBits = sizeof(bmfh) + sizeof(bmih) + sizeof(palette);
-
-	// write out data
-	fp = fopen(filename, "wb");
-	fwrite(&bmfh, sizeof(bmfh), 1, fp);
-	fwrite(&bmih, sizeof(bmih), 1, fp);
-	fwrite(&palette, sizeof(RGBQUAD), 256, fp);
-	for(int y = height - 1; y >= 0; --y)
-		fwrite(&output[y * bpl], bpl, 1, fp);	// flip upside down
-	fclose(fp);
-}
-
-/*
-inline int round(float f) 
-{ 
-	return (int)(f + 0.5);
-}
-*/
-
+// handle rounding errors that drop the value below zero by clipping to zero
 inline float safeSqrt(float f)
 {
 	if(f <= 0.0) return 0.0;
@@ -176,6 +128,7 @@ int main(int argc, char **argv)
 	}
 
 	float cx, cy;
+	TextToPixels ttp(10, 10);
 	while(!feof(fp))
 	{
 		if(NULL == fgets(buffer, 4096, fp)) break;
@@ -186,45 +139,43 @@ int main(int argc, char **argv)
 		cy = atof(token);
 
 		DrawTarget(cx, cy, thickness, diameters, bullIndex, dpi, width, height, bpl, output);
-	}
-
-	TextToPixels ttp(10, 10);
-	// overlay labels on target; use XOR so it works on black or white
-	for(int i = 0; i < labels.size(); ++i)
-	{
-		XImage *img = ttp.RenderTextToImage(labels[i].c_str());
-
-		// center label horizontally, put middle value at center, others midway between rings
-		int labelY;
-		int labelX = round(dpi * cx);
-		if(i == 0) 
-				labelY = round(dpi * cy);
-		else
-				// divide by 4 to average diameters, and conver to a radius
-				labelY = round(dpi * (cy - (diameters[i] + diameters[i - 1]) / 4));
-
-		// don't run off the edge
-		if(labelY - img->height < 0) break;
-
-		// adjust for size of label
-		labelY -= img->height / 2;
-		labelX -= img->width / 2;
-		for(int y = 0; y < img->height; ++y)
+		// overlay labels on target; use XOR so it works on black or white
+		for(int i = 0; i < labels.size(); ++i)
 		{
-			unsigned char *outline = 
-					&output[(labelY  + y) * bpl];
-
-			for(int x = 0; x < img->width; ++x)
+			XImage *img = ttp.RenderTextToImage(labels[i].c_str());
+	
+			// center label horizontally, put middle value at center, others midway between rings
+			int labelY;
+			int labelX = round(dpi * cx);
+			if(i == 0) 
+					labelY = round(dpi * cy);
+			else
+					// divide by 4 to average diameters, and conver to a radius
+					labelY = round(dpi * (cy - (diameters[i] + diameters[i - 1]) / 4));
+	
+			// don't run off the edge
+			if(labelY - img->height < 0) break;
+	
+			// adjust for size of label
+			labelY -= img->height / 2;
+			labelX -= img->width / 2;
+			for(int y = 0; y < img->height; ++y)
 			{
-				// 0 is black, so if it's zero, flip the color
-				long l = XGetPixel(img, x, y); 
-				if(l == 0)
-						outline[labelX + x] ^= 0xFF;
+				unsigned char *outline = 
+						&output[(labelY  + y) * bpl];
+	
+				for(int x = 0; x < img->width; ++x)
+				{
+					// 0 is black, so if it's zero, flip the color
+					long l = XGetPixel(img, x, y); 
+					if(l == 0)
+							outline[labelX + x] ^= 0xFF;
+				}
 			}
+			XFree(img);
 		}
-
-		XFree(img);
 	}
+
 	
 	// title the image
 	XImage *img = ttp.RenderTextToImage(title.c_str());
@@ -245,17 +196,17 @@ int main(int argc, char **argv)
 	}
 	XFree(img);
 	
-	// overwrite extension of data file with "bmp" for output filename
+	// overwrite extension of data file with "png" for output filename
 	sprintf(buffer, "%s", argv[1]);
 	int i;
 	for(i = strlen(buffer); i >= 0; --i) if(buffer[i] == '.') break;
 
 	if(i <= 0) 
-		sprintf(buffer, "%s", "target.bmp");
+		sprintf(buffer, "%s", "target.png");
 	else
-		memcpy(buffer + i, ".bmp", 4);
+		memcpy(buffer + i, ".png", 4);
 
-	WriteBitmap(buffer, width, height, bpl, output); 
+	WritePNG(buffer, width, height, bpl, dpi, 8, output); 
 	delete[] output;
 
 	return 0;

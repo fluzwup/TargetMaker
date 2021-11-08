@@ -1,7 +1,7 @@
 
 BINARY = MakeTarget
 
-CXXSOURCES = main.cpp TextToPixels.cpp
+CXXSOURCES = main.cpp TextToPixels.cpp WritePNG.cpp
 
 OBJECTS = ${CXXSOURCES:.cpp=.o}
 
@@ -9,7 +9,7 @@ INCLUDES = -I .
 
 LOCATIONS = 
 
-LIBRARIES = -lX11
+LIBRARIES = -lX11 -lpng
 
 CXXFLAGS = -ggdb -Wall
 CXX = g++ 

@@ -199,7 +199,7 @@ XImage *TextToPixels::RenderTextToImage(const char *pString)
 
 void TextToPixels::DumpImageToConsole(XImage *img)
 {
-		for(int y = 0; y < img-> height; ++y)
+		for(int y = 0; y < img->height; ++y)
 		{
 			for(int x = 0; x < img->width; ++x)
 			{
